@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Endless Lane Runner</title>
+<style>
+  body { margin:0; background:#222; overflow:hidden; font-family:monospace; }
+  #game { display:block; margin:0 auto; background:#444; touch-action:none; }
+  #hud { position:absolute; top:0; left:0; padding:4px; color:#fff; }
+  #gameover { position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);
+              background:#000a; color:#fff; padding:20px; text-align:center; display:none; }
+  button { margin-top:10px; }
+</style>
+</head>
+<body>
+<canvas id="game" width="400" height="600"></canvas>
+<div id="hud"></div>
+<div id="gameover">
+  <div id="final"></div>
+  <button id="restart">Restart</button>
+</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const overPanel = document.getElementById('gameover');
+const finalScore = document.getElementById('final');
+const restartBtn = document.getElementById('restart');
+
+const road = { x: 60, width: 280 };
+const lanes = 3;
+const laneWidth = road.width / lanes;
+const player = {
+  x: road.x + laneWidth/2 - 20,
+  y: canvas.height * 0.75,
+  w: 40, h: 70,
+  speed: 0,
+  maxSpeed: 6,
+  accel: 0.2,
+  turnRate: 5,
+  invincibleUntil: 0
+};
+let obstacles = [];
+let coins = [];
+let keys = {};
+let scrollSpeed = 4;
+let score = 0;
+let difficulty = 1;
+let elapsed = 0;
+let spawnTimer = 0;
+let status = 'menu';
+let lastTime = 0;
+
+function reset() {
+  obstacles = [];
+  coins = [];
+  score = 0;
+  difficulty = 1;
+  elapsed = 0;
+  spawnTimer = 0;
+  scrollSpeed = 4;
+  player.x = road.x + laneWidth/2 - player.w/2;
+  player.speed = 0;
+  status = 'running';
+  overPanel.style.display = 'none';
+  requestAnimationFrame(loop);
+}
+
+restartBtn.onclick = reset;
+
+window.addEventListener('keydown', e => { keys[e.code] = true; if(status==='menu') reset(); });
+window.addEventListener('keyup', e => delete keys[e.code]);
+
+let touchX = null;
+canvas.addEventListener('pointerdown', e => { touchX = e.clientX; });
+canvas.addEventListener('pointerup', () => { touchX = null; });
+canvas.addEventListener('pointermove', e => {
+  if(touchX!==null){
+    const dx = e.clientX - touchX;
+    player.x += dx * 0.1;
+    touchX = e.clientX;
+  }
+});
+
+function spawnObstacle() {
+  const lane = Math.floor(Math.random()*lanes);
+  obstacles.push({
+    x: road.x + lane*laneWidth + laneWidth/2 - 15,
+    y: -40,
+    w: 30,
+    h: 40,
+    vy: scrollSpeed + player.speed
+  });
+}
+
+function update(dt) {
+  // difficulty ramp
+  elapsed += dt;
+  if(elapsed/1000 > difficulty*10){
+    difficulty++;
+    scrollSpeed += 0.15;
+  }
+
+  // player speed control
+  if(keys['ArrowUp']||keys['KeyW']) player.speed = Math.min(player.speed + player.accel, player.maxSpeed);
+  else if(keys['ArrowDown']||keys['KeyS']) player.speed = Math.max(player.speed - player.accel*2, 0);
+  else player.speed += (scrollSpeed - player.speed) * 0.02;
+
+  // horizontal control
+  let turn = 0;
+  if(keys['ArrowLeft']||keys['KeyA']) turn -= player.turnRate;
+  if(keys['ArrowRight']||keys['KeyD']) turn += player.turnRate;
+  player.x += turn;
+  player.x = Math.max(road.x, Math.min(road.x + road.width - player.w, player.x));
+
+  // obstacles
+  obstacles.forEach(o => { o.y += scrollSpeed + player.speed; });
+  obstacles = obstacles.filter(o => o.y < canvas.height + 50);
+
+  // collisions
+  for(const o of obstacles){
+    if(aabb(player,o)){
+      status = 'gameover';
+      finalScore.textContent = `Score: ${Math.floor(score)}`;
+      overPanel.style.display = 'block';
+    }
+  }
+
+  // spawn
+  spawnTimer += dt;
+  const spawnInterval = Math.max(800 - difficulty*60, 300);
+  if(spawnTimer > spawnInterval){
+    spawnObstacle();
+    spawnTimer = 0;
+  }
+
+  score += difficulty * dt / 16; // roughly +1 per frame * difficulty
+}
+
+function aabb(a,b){
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function draw() {
+  ctx.fillStyle = '#222';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = '#555';
+  ctx.fillRect(road.x,0,road.width,canvas.height);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([20,20]);
+  for(let i=1;i<lanes;i++){
+    const x = road.x + i*laneWidth;
+    ctx.beginPath();
+    ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  // player
+  ctx.fillStyle = 'red';
+  ctx.fillRect(player.x, player.y, player.w, player.h);
+  // obstacles
+  ctx.fillStyle = 'orange';
+  obstacles.forEach(o => ctx.fillRect(o.x, o.y, o.w, o.h));
+}
+
+function loop(ts){
+  const dt = ts - lastTime; lastTime = ts;
+  if(status==='running') update(dt);
+  draw();
+  hud.textContent = `Score: ${Math.floor(score)} Speed: ${(scrollSpeed+player.speed).toFixed(1)} Diff: ${difficulty}`;
+  requestAnimationFrame(loop);
+}
+
+reset();
+</script>
+</body>
+</html>
